@@ -1,0 +1,6 @@
+test/
+.eslintrc*
+eslint.config.mjs
+.prettierrc
+.gitignore
+.github/

@@ -1,0 +1,47 @@
+{
+  "name": "@fidensa/mcp-server",
+  "version": "0.1.2",
+  "description": "Fidensa AI certification authority — MCP server for trust-aware tool selection",
+  "type": "module",
+  "bin": {
+    "fidensa-mcp-server": "./src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test --experimental-test-coverage test/**/*.test.mjs",
+    "test:unit": "node --test test/**/*.test.mjs",
+    "lint": "eslint src/ test/",
+    "lint:fix": "eslint src/ test/ --fix",
+    "format": "prettier --write \"src/**/*.mjs\" \"test/**/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.mjs\" \"test/**/*.mjs\""
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "fidensa",
+    "ai-trust",
+    "certification",
+    "security"
+  ],
+  "author": "Fidensa (https://fidensa.com)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fidensa/mcp-server.git"
+  },
+  "homepage": "https://fidensa.com",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "zod": "^3.25.0",
+    "jose": "^6.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "prettier": "^3.3.0"
+  }
+}
