@@ -452,10 +452,13 @@ describe('report_experience', () => {
   });
 
   it('submits a signed report when consumer identity is configured', async () => {
-    // Generate a real ES256 keypair for testing
-    const { generateKeyPair, exportJWK } = await import('jose');
-    const { privateKey, publicKey } = await generateKeyPair('ES256');
-    const privateJwk = await exportJWK(privateKey);
+    // Generate a real ES256 keypair for testing via Web Crypto
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
     const savedId = process.env.FIDENSA_CONSUMER_ID;
     const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
@@ -493,7 +496,7 @@ describe('report_experience', () => {
     );
 
     // Should succeed
-    assertTextContent(result, 'accepted');
+    assertTextContent(result, 'Report Accepted');
     assertTextContent(result, 'mcp-server-filesystem');
 
     // Verify the posted body has required fields
@@ -514,9 +517,12 @@ describe('report_experience', () => {
   });
 
   it('uses explicit version when provided instead of looking up', async () => {
-    const { generateKeyPair, exportJWK } = await import('jose');
-    const { privateKey } = await generateKeyPair('ES256');
-    const privateJwk = await exportJWK(privateKey);
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
     const savedId = process.env.FIDENSA_CONSUMER_ID;
     const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
@@ -557,9 +563,12 @@ describe('report_experience', () => {
   });
 
   it('handles API error from report submission gracefully', async () => {
-    const { generateKeyPair, exportJWK } = await import('jose');
-    const { privateKey } = await generateKeyPair('ES256');
-    const privateJwk = await exportJWK(privateKey);
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
     const savedId = process.env.FIDENSA_CONSUMER_ID;
     const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
@@ -596,9 +605,12 @@ describe('report_experience', () => {
   });
 
   it('handles version lookup failure gracefully', async () => {
-    const { generateKeyPair, exportJWK } = await import('jose');
-    const { privateKey } = await generateKeyPair('ES256');
-    const privateJwk = await exportJWK(privateKey);
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
     const savedId = process.env.FIDENSA_CONSUMER_ID;
     const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;

@@ -1,24 +1,27 @@
 /**
  * report_experience tool — social proof submission.
  *
- * The consumer reports endpoint (POST /v1/reports) is live.
- * This tool requires consumer identity configuration to sign reports:
+ * Signs and submits consumer experience reports to the Fidensa API.
+ * Requires consumer identity configuration:
  *   - FIDENSA_CONSUMER_ID: registered consumer identity
  *   - FIDENSA_CONSUMER_PRIVATE_KEY: ES256 private key (JWK JSON string)
  *
  * Without these credentials, the tool returns instructions for setup.
- * Full signing integration is tracked for the next MCP server release.
+ * Signing uses Web Crypto (ECDSA P-256) — no external crypto dependencies.
  */
+
+import { importPrivateKey, signCompactJws } from '../lib/jws-sign.mjs';
 
 /**
  * @param {object} input
  * @param {string} input.capability_id
+ * @param {string} [input.version]        - capability version (looked up if omitted)
  * @param {string} input.outcome          - success | failure | partial
  * @param {object} input.environment      - { agent_platform, agent_version?, os?, runtime_version? }
  * @param {object} [input.details]        - { tools_used?, failure_description?, unexpected_behavior? }
- * @param {import('../lib/api-client.mjs').ApiClient} _client
+ * @param {import('../lib/api-client.mjs').ApiClient} client
  */
-export async function handleReportExperience(input, _client) {
+export async function handleReportExperience(input, client) {
   const consumerId = process.env.FIDENSA_CONSUMER_ID;
   const privateKeyJson = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
 
@@ -42,22 +45,100 @@ export async function handleReportExperience(input, _client) {
     };
   }
 
-  // TODO: Implement JWS signing and POST /v1/reports call
-  // This requires: build JWS Compact Serialization of the report payload
-  // using the consumer's ES256 private key, then POST to the reports endpoint.
-  // Tracked for next MCP server release (v0.2.0).
-  return {
-    content: [
-      {
-        type: 'text',
-        text:
-          `Consumer identity is configured (${consumerId}), but report signing ` +
-          `is not yet implemented in this version of the MCP server.\n\n` +
-          `Your report for **${input.capability_id}** (outcome: ${input.outcome}) ` +
-          `was not submitted. Report signing will be available in v0.2.0.\n\n` +
-          `In the meantime, you can submit reports directly via the REST API:\n` +
-          `\`POST https://fidensa.com/v1/reports\``,
-      },
-    ],
+  // Resolve capability version — use explicit if provided, otherwise look up
+  let capabilityVersion = input.version;
+  if (!capabilityVersion) {
+    try {
+      const attestation = await client.get(`/v1/attestation/${input.capability_id}`);
+      capabilityVersion = attestation.version;
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text:
+              `Failed to look up certification for **${input.capability_id}**: ${err.message}\n\n` +
+              `Reports can only be submitted for certified capabilities. ` +
+              `Provide an explicit \`version\` parameter or verify the capability ID is correct.`,
+          },
+        ],
+      };
+    }
+  }
+
+  // Build report payload (everything the server expects, minus the signature)
+  const timestamp = new Date().toISOString();
+  const reportPayload = {
+    capability_id: input.capability_id,
+    capability_version: capabilityVersion,
+    outcome: input.outcome,
+    environment: input.environment,
+    consumer_id: consumerId,
+    timestamp,
   };
+  if (input.details) {
+    reportPayload.details = input.details;
+  }
+
+  // Sign the report with the consumer's private key
+  let signature;
+  try {
+    const privateJwk = JSON.parse(privateKeyJson);
+    const privateKey = await importPrivateKey(privateJwk);
+    signature = await signCompactJws(reportPayload, privateKey, consumerId);
+  } catch (err) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text:
+            `Failed to sign report: ${err.message}\n\n` +
+            `Verify that FIDENSA_CONSUMER_PRIVATE_KEY contains a valid ES256 (P-256) private key in JWK format.`,
+        },
+      ],
+    };
+  }
+
+  // Submit to the reports endpoint
+  const body = { ...reportPayload, signature };
+
+  try {
+    const result = await client.post('/v1/reports', body);
+
+    const lines = [
+      `## Report Accepted`,
+      ``,
+      `**Capability:** ${result.capability_id}`,
+      `**Outcome:** ${input.outcome}`,
+      `**Report ID:** ${result.report_id}`,
+    ];
+
+    if (result.current_confirmation_rate != null) {
+      lines.push(
+        `**Current confirmation rate:** ${Math.round(result.current_confirmation_rate * 100)}%`,
+      );
+    }
+
+    lines.push(
+      ``,
+      `Your report has been recorded and will contribute to this capability's trust score.`,
+    );
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  } catch (err) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text:
+            `Report submission failed: ${err.message}\n\n` +
+            `**Capability:** ${input.capability_id}\n` +
+            `**Outcome:** ${input.outcome}`,
+        },
+      ],
+    };
+  }
 }

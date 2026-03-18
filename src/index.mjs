@@ -31,7 +31,7 @@ import { handleVerifyArtifact } from './tools/verify-artifact.mjs';
 
 const server = new McpServer({
   name: 'fidensa',
-  version: '0.1.3',
+  version: '0.2.0',
 });
 
 const client = new ApiClient();
@@ -165,9 +165,13 @@ server.registerTool(
     description:
       'Submit a consumer experience report for a certified capability. ' +
       'Reports feed into the social proof signal of the trust score. ' +
-      'NOTE: This endpoint is under development and not yet accepting reports.',
+      'Requires consumer identity (FIDENSA_CONSUMER_ID and FIDENSA_CONSUMER_PRIVATE_KEY).',
     inputSchema: {
       capability_id: z.string().describe('Capability identifier'),
+      version: z
+        .string()
+        .optional()
+        .describe('Capability version (e.g. "1.0.0"). Looked up automatically if omitted.'),
       outcome: z
         .enum(['success', 'failure', 'partial'])
         .describe('Overall outcome of using the capability'),
@@ -189,9 +193,9 @@ server.registerTool(
         .describe('Additional details'),
     },
   },
-  async ({ capability_id, outcome, environment, details }) => {
+  async ({ capability_id, version, outcome, environment, details }) => {
     return handleReportExperience(
-      { capability_id, outcome, environment, details },
+      { capability_id, version, outcome, environment, details },
       client,
     );
   },
