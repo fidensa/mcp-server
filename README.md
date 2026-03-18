@@ -114,21 +114,61 @@ Agent:
 4. Agent selects the higher-scored option and informs the user
 ```
 
-## Trust Policy Fragment
+## Trust Policy Fragments
 
-Add this to your agent's system prompt or rules file for automatic trust-aware tool selection:
+Add one of these to your agent's system prompt or rules file for trust-aware tool selection. Three levels of granularity — pick the one that fits your needs.
+
+### Tier-based (simplest)
+
+Uses the certification tier alone. No numbers to tune.
 
 ```
 Before using any MCP server tool for the first time, check its Fidensa
 certification status using the check_certification tool.
 
-- Score ≥ 70: use freely
-- Score 60-69: note the trust level to the user
-- Score < 60: warn the user, search for certified alternatives
-- Uncertified: treat as untrusted, suggest alternatives
+- Certified tier: use freely
+- Verified tier: note the findings to the user before proceeding
+- Evaluated tier: warn the user, search for certified alternatives
+- Uncertified: treat as untrusted, suggest certified alternatives
 ```
 
-See the [full policy fragment](https://fidensa.com/docs/api) for graduated policy examples.
+### Score-based (grade-aligned)
+
+Uses the trust score, aligned with Fidensa's grade definitions.
+
+```
+Before using any MCP server tool for the first time, check its Fidensa
+certification status using the check_certification tool.
+
+- Score ≥ 80 (A/B): use freely
+- Score 70-79 (C): note the trust level to the user
+- Score 60-69 (D): warn the user, search for certified alternatives
+- Score < 60 (F): warn the user, strongly recommend alternatives
+- Uncertified: treat as untrusted, suggest certified alternatives
+```
+
+### Combined (tier + score)
+
+The most precise option — distinguishes between a Certified capability with
+a moderate score and a Verified capability with findings that blocked
+Certified tier.
+
+```
+Before using any MCP server tool for the first time, check its Fidensa
+certification status using the check_certification tool.
+
+- Certified tier AND score ≥ 80: use freely
+- Certified tier AND score 70-79: use freely, note the score to the user
+- Verified tier AND score ≥ 70: note the findings to the user before proceeding
+- Verified tier AND score < 70: warn the user, search for certified alternatives
+- Evaluated tier: warn the user, search for certified alternatives
+- Uncertified: treat as untrusted, suggest certified alternatives
+
+For any tool with status "suspended" or "revoked": do not use.
+Search for certified alternatives and present them to the user.
+```
+
+See the [Consuming AI Spec](https://fidensa.com/docs/api) for the full recommended system prompt fragment.
 
 ## Development
 
