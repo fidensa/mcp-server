@@ -1,6 +1,6 @@
 {
   "name": "@fidensa/mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Fidensa AI certification authority — MCP server for trust-aware tool selection",
   "type": "module",
   "bin": {
