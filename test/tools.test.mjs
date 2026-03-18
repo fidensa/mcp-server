@@ -426,7 +426,13 @@ describe('compare_capabilities', () => {
 // ── report_experience ────────────────────────────────────────────────
 
 describe('report_experience', () => {
-  it('returns coming-soon message', async () => {
+  it('returns credential setup instructions when no consumer identity configured', async () => {
+    // Clear env vars to simulate missing identity
+    const savedId = process.env.FIDENSA_CONSUMER_ID;
+    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    delete process.env.FIDENSA_CONSUMER_ID;
+    delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+
     const client = fakeClient({});
     const result = await handleReportExperience(
       {
@@ -436,9 +442,196 @@ describe('report_experience', () => {
       },
       client,
     );
-    assertTextContent(result, 'coming soon');
+    assertTextContent(result, 'Consumer Identity Required');
     assertTextContent(result, 'mcp-server-filesystem');
     assertTextContent(result, 'success');
+
+    // Restore
+    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
+    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
+  });
+
+  it('submits a signed report when consumer identity is configured', async () => {
+    // Generate a real ES256 keypair for testing
+    const { generateKeyPair, exportJWK } = await import('jose');
+    const { privateKey, publicKey } = await generateKeyPair('ES256');
+    const privateJwk = await exportJWK(privateKey);
+
+    const savedId = process.env.FIDENSA_CONSUMER_ID;
+    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
+    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
+
+    let capturedBody;
+    const client = {
+      apiKey: null,
+      async get(path) {
+        // Attestation lookup for version
+        if (path.startsWith('/v1/attestation/')) {
+          return { capability_id: 'mcp-server-filesystem', version: '1.0.0', status: 'valid' };
+        }
+        throw new Error('Unexpected GET: ' + path);
+      },
+      async post(path, body) {
+        capturedBody = body;
+        return {
+          accepted: true,
+          report_id: 'rpt-abc123',
+          capability_id: 'mcp-server-filesystem',
+          current_confirmation_rate: 0.95,
+        };
+      },
+    };
+
+    const result = await handleReportExperience(
+      {
+        capability_id: 'mcp-server-filesystem',
+        outcome: 'success',
+        environment: { agent_platform: 'claude-code' },
+      },
+      client,
+    );
+
+    // Should succeed
+    assertTextContent(result, 'accepted');
+    assertTextContent(result, 'mcp-server-filesystem');
+
+    // Verify the posted body has required fields
+    assert.equal(capturedBody.capability_id, 'mcp-server-filesystem');
+    assert.equal(capturedBody.capability_version, '1.0.0');
+    assert.equal(capturedBody.outcome, 'success');
+    assert.equal(capturedBody.consumer_id, 'con-test1234');
+    assert.ok(capturedBody.timestamp, 'Should have a timestamp');
+    assert.ok(capturedBody.signature, 'Should have a JWS signature');
+    // JWS Compact has 3 dot-separated parts
+    assert.equal(capturedBody.signature.split('.').length, 3, 'Signature should be JWS Compact');
+
+    // Restore
+    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
+    else delete process.env.FIDENSA_CONSUMER_ID;
+    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
+    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+  });
+
+  it('uses explicit version when provided instead of looking up', async () => {
+    const { generateKeyPair, exportJWK } = await import('jose');
+    const { privateKey } = await generateKeyPair('ES256');
+    const privateJwk = await exportJWK(privateKey);
+
+    const savedId = process.env.FIDENSA_CONSUMER_ID;
+    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
+    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
+
+    let getWasCalled = false;
+    let capturedBody;
+    const client = {
+      apiKey: null,
+      async get() {
+        getWasCalled = true;
+        return { capability_id: 'test', version: '9.9.9', status: 'valid' };
+      },
+      async post(_path, body) {
+        capturedBody = body;
+        return { accepted: true, report_id: 'rpt-x', capability_id: 'test', current_confirmation_rate: null };
+      },
+    };
+
+    await handleReportExperience(
+      {
+        capability_id: 'test',
+        version: '2.0.0',
+        outcome: 'failure',
+        environment: { agent_platform: 'cursor' },
+      },
+      client,
+    );
+
+    assert.equal(capturedBody.capability_version, '2.0.0');
+    assert.equal(getWasCalled, false, 'Should not call attestation API when version is explicit');
+
+    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
+    else delete process.env.FIDENSA_CONSUMER_ID;
+    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
+    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+  });
+
+  it('handles API error from report submission gracefully', async () => {
+    const { generateKeyPair, exportJWK } = await import('jose');
+    const { privateKey } = await generateKeyPair('ES256');
+    const privateJwk = await exportJWK(privateKey);
+
+    const savedId = process.env.FIDENSA_CONSUMER_ID;
+    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
+    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
+
+    const client = {
+      apiKey: null,
+      async get() {
+        return { capability_id: 'test', version: '1.0.0', status: 'valid' };
+      },
+      async post() {
+        const { FidensaApiError } = await import('../src/lib/api-client.mjs');
+        throw new FidensaApiError(429, { error: 'Rate limit exceeded' });
+      },
+    };
+
+    const result = await handleReportExperience(
+      {
+        capability_id: 'test',
+        outcome: 'success',
+        environment: { agent_platform: 'claude-code' },
+      },
+      client,
+    );
+
+    assertIsError(result);
+    assertTextContent(result, 'Rate limit exceeded');
+
+    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
+    else delete process.env.FIDENSA_CONSUMER_ID;
+    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
+    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+  });
+
+  it('handles version lookup failure gracefully', async () => {
+    const { generateKeyPair, exportJWK } = await import('jose');
+    const { privateKey } = await generateKeyPair('ES256');
+    const privateJwk = await exportJWK(privateKey);
+
+    const savedId = process.env.FIDENSA_CONSUMER_ID;
+    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
+    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
+
+    const client = {
+      apiKey: null,
+      async get() {
+        const { FidensaApiError } = await import('../src/lib/api-client.mjs');
+        throw new FidensaApiError(404, { error: 'not_found' });
+      },
+      async post() {
+        throw new Error('Should not reach POST');
+      },
+    };
+
+    const result = await handleReportExperience(
+      {
+        capability_id: 'nonexistent',
+        outcome: 'success',
+        environment: { agent_platform: 'claude-code' },
+      },
+      client,
+    );
+
+    assertIsError(result);
+    assertTextContent(result, 'nonexistent');
+
+    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
+    else delete process.env.FIDENSA_CONSUMER_ID;
+    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
+    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
   });
 });
 
