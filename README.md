@@ -141,9 +141,9 @@ Before using any MCP server tool for the first time, check its Fidensa
 certification status using the check_certification tool.
 
 - Score ≥ 80 (A/B): use freely
-- Score 70-79 (C): note the trust level to the user
-- Score 60-69 (D): warn the user, search for certified alternatives
-- Score < 60 (F): warn the user, strongly recommend alternatives
+- Score 72-79 (C): note the trust level to the user
+- Score 65-71 (D): warn the user, search for certified alternatives
+- Score < 65 (F): warn the user, strongly recommend alternatives
 - Uncertified: treat as untrusted, suggest certified alternatives
 ```
 
@@ -158,9 +158,9 @@ Before using any MCP server tool for the first time, check its Fidensa
 certification status using the check_certification tool.
 
 - Certified tier AND score ≥ 80: use freely
-- Certified tier AND score 70-79: use freely, note the score to the user
-- Verified tier AND score ≥ 70: note the findings to the user before proceeding
-- Verified tier AND score < 70: warn the user, search for certified alternatives
+- Certified tier AND score 72-79: use freely, note the score to the user
+- Verified tier AND score ≥ 72: note the findings to the user before proceeding
+- Verified tier AND score < 72: warn the user, search for certified alternatives
 - Evaluated tier: warn the user, search for certified alternatives
 - Uncertified: treat as untrusted, suggest certified alternatives
 
