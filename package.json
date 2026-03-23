@@ -4,7 +4,7 @@
   "description": "Fidensa AI certification authority — MCP server for trust-aware tool selection",
   "type": "module",
   "bin": {
-    "fidensa-mcp-server": "./src/index.mjs"
+    "fidensa-mcp-server": "src/index.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fidensa/mcp-server.git"
+    "url": "git+https://github.com/fidensa/mcp-server.git"
   },
   "homepage": "https://fidensa.com",
   "dependencies": {
