@@ -13,7 +13,7 @@ function capitalize(s) {
 /**
  * @param {object} input
  * @param {string} input.query
- * @param {string} [input.type]      - mcp_server, skill, workflow, plugin
+ * @param {string} [input.type]      - mcp_server, skill, rules_file, hook, sub_agent, plugin
  * @param {string} [input.tier]      - certified, verified, evaluated
  * @param {number} [input.min_score] - 0-100
  * @param {number} [input.limit]     - 1-50, default 10

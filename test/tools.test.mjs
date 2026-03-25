@@ -148,26 +148,63 @@ describe('get_contract', () => {
         contract: {
           identity: {
             name: '@modelcontextprotocol/server-filesystem',
-            publisher: 'Anthropic',
-            description: 'Filesystem access via MCP',
+            publisher: { name: 'Anthropic', verified: false },
+            type: 'mcp_server',
+            source: 'https://github.com/modelcontextprotocol/servers',
+            license: 'MIT',
           },
           supply_chain: {
-            total_components: 45,
-            vulnerability_counts: { critical: 0, high: 1, medium: 3, low: 2 },
+            sbom: {
+              component_count: 45,
+              direct_dependencies: 12,
+              transitive_dependencies: 33,
+              vulnerability_summary: { critical: 0, high: 1, medium: 3, low: 2, total: 6 },
+            },
           },
-          security: {
-            scan_results: { summary: { total: 2 } },
-            adversarial_results: { total_findings: 3 },
+          provenance: {
+            license_present: true,
+            security_md_present: true,
+            readme_present: true,
+            readme_empty: false,
+            namespace_match: true,
+            contributor_count: 5,
+            repo_age_days: 180,
           },
-          behavioral_fingerprint: {
-            tools: {
-              read_file: {
-                timing_ms: { p50: 12, p95: 45 },
+          trust: {
+            behavioral_fingerprint: {
+              fingerprint_version: '1.0',
+              signals: {
+                response_time_ms: { p50: 5, p95: 20, p99: 45 },
                 error_rate: 0.02,
+                resource_profile: { peak_memory_mb: 72.38, avg_cpu_percent: 0.03 },
+                per_tool: {
+                  read_file: { p50_ms: 12, p95_ms: 45, error_rate: 0.02, sample_count: 97 },
+                  write_file: { p50_ms: 8, p95_ms: 30, error_rate: 0.01, sample_count: 50 },
+                },
               },
-              write_file: {
-                timing_ms: { p50: 8, p95: 30 },
-                error_rate: 0.01,
+            },
+          },
+          mcp_server: {
+            interface: {
+              tools: [
+                { name: 'read_file', description: 'Read a file from the filesystem' },
+                { name: 'write_file', description: 'Write content to a file' },
+              ],
+            },
+            security: {
+              permissions_required: ['filesystem:read', 'filesystem:write'],
+              scan_results: {
+                cisco_mcp_scanner: {
+                  status: 'SAFE',
+                  findings_summary: { critical: 0, high: 0, medium: 0, low: 0 },
+                },
+              },
+              adversarial_testing: {
+                categories_tested: ['prompt_injection_chains', 'privilege_escalation', 'data_exfiltration_side_channels'],
+                findings: [
+                  { category: 'privilege_escalation', severity: 'critical', classification: 'block', description: 'Path traversal beyond allowed directories' },
+                  { category: 'data_exfiltration_side_channels', severity: 'medium', classification: 'warn', description: 'Timing side channel on file existence' },
+                ],
               },
             },
           },
@@ -181,16 +218,24 @@ describe('get_contract', () => {
     );
     // Identity
     assertTextContent(result, 'Anthropic');
-    assertTextContent(result, 'Filesystem access via MCP');
+    assertTextContent(result, 'mcp_server');
     // Supply chain
     assertTextContent(result, '45');
     assertTextContent(result, 'critical');
-    // Security
-    assertTextContent(result, 'Adversarial findings: 3');
+    // Security + adversarial
+    assertTextContent(result, 'cisco_mcp_scanner');
+    assertTextContent(result, 'Findings: 2');
+    assertTextContent(result, 'BLOCK');
+    assertTextContent(result, 'Path traversal');
     // Fingerprint
     assertTextContent(result, 'read_file');
     assertTextContent(result, 'p50=12');
     assertTextContent(result, 'write_file');
+    // Provenance
+    assertTextContent(result, 'namespace verified');
+    assertTextContent(result, 'Contributors: 5');
+    // Interface
+    assertTextContent(result, 'Tools: 2');
   });
 
   it('returns error when API key is missing', async () => {

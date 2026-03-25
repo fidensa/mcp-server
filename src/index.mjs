@@ -31,7 +31,7 @@ import { handleVerifyArtifact } from './tools/verify-artifact.mjs';
 
 const server = new McpServer({
   name: 'fidensa',
-  version: '0.2.0',
+  version: '0.2.2',
 });
 
 const client = new ApiClient();
@@ -101,7 +101,7 @@ server.registerTool(
     inputSchema: {
       query: z.string().describe('Search query (natural language or keywords)'),
       type: z
-        .enum(['mcp_server', 'skill', 'workflow', 'plugin'])
+        .enum(['mcp_server', 'skill', 'rules_file', 'hook', 'sub_agent', 'plugin'])
         .optional()
         .describe('Filter by capability type'),
       tier: z

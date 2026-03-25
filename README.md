@@ -8,48 +8,54 @@ Gives your AI agent structured access to Fidensa certification data through the 
 
 Fidensa certifies MCP servers, skills, agent rules files, hooks, sub-agents, and plugins.
 
-## Quick Start
+## Getting Started
 
-```bash
-npx @fidensa/mcp-server
-```
-
-Or install globally:
+### 1. Install
 
 ```bash
 npm install -g @fidensa/mcp-server
+```
+
+### 2. Verify it works
+
+Two of the six tools (`check_certification` and `search_capabilities`) work without an API key. Start the server and confirm it connects to the production API:
+
+```bash
 fidensa-mcp-server
 ```
 
-## Configuration
+You should see:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `FIDENSA_API_KEY` | No* | API key for full access. Get one free at [fidensa.com/docs/api](https://fidensa.com/docs/api) |
-| `FIDENSA_BASE_URL` | No | Override API base URL (default: `https://fidensa.com`) |
-| `FIDENSA_CONSUMER_ID` | No** | Consumer identity ID for experience reporting |
-| `FIDENSA_CONSUMER_PRIVATE_KEY` | No** | ECDSA P-256 private key (JWK) for signing experience reports |
+```
+[fidensa] MCP server started (stdio transport)
+[fidensa] No FIDENSA_API_KEY set — check_certification and search_capabilities available. Set FIDENSA_API_KEY for full access.
+```
 
-\* `check_certification` and `search_capabilities` work without an API key. Other tools require a free Registered-tier key.
+Press Ctrl+C to stop.
 
-\*\* Required only for `report_experience`. Register a consumer identity at [fidensa.com/docs/api](https://fidensa.com/docs/api) to get a keypair.
+### 3. Get an API key (optional, free)
 
-## Tools
+The remaining tools (`get_contract`, `compare_capabilities`, `verify_artifact`) require a free API key. Register one:
 
-| Tool | Auth | Description |
-|------|------|-------------|
-| `check_certification` | None | Quick trust check -- status, score, grade, tier |
-| `search_capabilities` | None | Search for certified capabilities by keyword, type, tier, or score |
-| `get_contract` | API key | Full certification contract with all evidence |
-| `compare_capabilities` | API key | Side-by-side comparison of 2-5 capabilities |
-| `verify_artifact` | API key | Verify cryptographic signatures on .cert.json artifacts |
-| `report_experience` | Consumer identity | Submit signed runtime experience reports for certified capabilities |
+```bash
+curl -X POST https://fidensa.com/v1/keys \
+  -H "Content-Type: application/json" \
+  -d '{"display_name": "My Agent", "email": "you@example.com"}'
+```
 
-## Agent Configuration
+Or in PowerShell:
 
-### Claude Code
+```powershell
+Invoke-RestMethod -Uri "https://fidensa.com/v1/keys" -Method Post -ContentType "application/json" -Body '{"display_name": "My Agent", "email": "you@example.com"}'
+```
 
-Add to your Claude Code MCP settings:
+The response contains your API key (prefixed `fid_`). Store it securely -- it is shown only once.
+
+### 4. Add to your agent
+
+Pick your platform and add the MCP server configuration:
+
+**Claude Desktop / Claude Code**
 
 ```json
 {
@@ -65,9 +71,7 @@ Add to your Claude Code MCP settings:
 }
 ```
 
-### Cursor
-
-Add to `.cursor/mcp.json`:
+**Cursor** (`.cursor/mcp.json`)
 
 ```json
 {
@@ -83,9 +87,7 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
-### Windsurf / VS Code
-
-Add to your MCP configuration:
+**Windsurf / VS Code**
 
 ```json
 {
@@ -101,6 +103,32 @@ Add to your MCP configuration:
   }
 }
 ```
+
+Omit the `FIDENSA_API_KEY` line if you only need `check_certification` and `search_capabilities`.
+
+> **Claude Desktop tip:** Access the config file via Settings → Developer → Edit Config. After saving, fully quit and reopen Claude Desktop (right-click the system tray icon and select Quit — just closing the window isn't enough).
+
+## Tools
+
+| Tool | Auth | Description |
+|------|------|-------------|
+| `check_certification` | None | Quick trust check -- status, score, grade, tier |
+| `search_capabilities` | None | Search for certified capabilities by keyword, type, tier, or score |
+| `get_contract` | API key | Full certification contract with all evidence |
+| `compare_capabilities` | API key | Side-by-side comparison of 2-5 capabilities |
+| `verify_artifact` | API key | Verify cryptographic signatures on .cert.json artifacts |
+| `report_experience` | Consumer identity | Submit signed runtime experience reports for certified capabilities |
+
+## Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `FIDENSA_API_KEY` | No | API key for full access (see [Getting Started](#3-get-an-api-key-optional-free)) |
+| `FIDENSA_BASE_URL` | No | Override API base URL (default: `https://fidensa.com`) |
+| `FIDENSA_CONSUMER_ID` | No | Consumer identity ID for experience reporting |
+| `FIDENSA_CONSUMER_PRIVATE_KEY` | No | ECDSA P-256 private key (JWK) for signing experience reports |
+
+`check_certification` and `search_capabilities` work without any configuration. Other tools require `FIDENSA_API_KEY`. `report_experience` requires a consumer identity -- register one via `POST /v1/consumers` (see [API docs](https://fidensa.com/docs/api)).
 
 ## Example Agent Workflow
 
@@ -174,7 +202,7 @@ For any tool with status "suspended" or "revoked": do not use.
 Search for certified alternatives and present them to the user.
 ```
 
-See the [Consuming AI Spec](https://fidensa.com/docs/api) for the full recommended system prompt fragment.
+See the [API Documentation](https://fidensa.com/docs/api) for the full specification.
 
 ## Development
 
