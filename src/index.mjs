@@ -75,10 +75,7 @@ server.registerTool(
       '(set FIDENSA_API_KEY).',
     inputSchema: {
       capability_id: z.string().describe('Capability identifier'),
-      version: z
-        .string()
-        .optional()
-        .describe('Specific version (omit for latest)'),
+      version: z.string().optional().describe('Specific version (omit for latest)'),
     },
     annotations: {
       readOnlyHint: true,
@@ -211,10 +208,7 @@ server.registerTool(
       'Accepts base64-encoded content or a fidensa.com URL. ' +
       'Requires a free API key (set FIDENSA_API_KEY).',
     inputSchema: {
-      content: z
-        .string()
-        .optional()
-        .describe('Base64-encoded .cert.json artifact content'),
+      content: z.string().optional().describe('Base64-encoded .cert.json artifact content'),
       url: z
         .string()
         .optional()
