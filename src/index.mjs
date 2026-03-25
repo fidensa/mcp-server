@@ -31,7 +31,7 @@ import { handleVerifyArtifact } from './tools/verify-artifact.mjs';
 
 const server = new McpServer({
   name: 'fidensa',
-  version: '0.2.2',
+  version: '0.3.0',
 });
 
 const client = new ApiClient();
