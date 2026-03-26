@@ -204,23 +204,39 @@ server.registerTool(
     title: 'Verify Fidensa Certification Artifact',
     description:
       'Verify the cryptographic signatures on a Fidensa certification artifact (.cert.json). ' +
-      'Checks platform signature, publisher attestation, content hash, and expiry. ' +
-      'Accepts base64-encoded content or a fidensa.com URL. ' +
+      'Checks platform signature, publisher attestation, content hash, expiry, and optionally ' +
+      'code integrity (git SHA match). For true offline verification, pass the .cert.json content ' +
+      "from the capability's published package via the content parameter. " +
       'Requires a free API key (set FIDENSA_API_KEY).',
     inputSchema: {
-      content: z.string().optional().describe('Base64-encoded .cert.json artifact content'),
+      content: z
+        .string()
+        .optional()
+        .describe(
+          'Base64-encoded .cert.json artifact content. Preferred for independent verification.',
+        ),
       url: z
         .string()
         .optional()
-        .describe('fidensa.com URL to fetch the artifact from (restricted to fidensa.com domain)'),
+        .describe(
+          'fidensa.com URL to fetch the artifact (convenience, but verification is circular ' +
+            'since the artifact comes from the same authority verifying it).',
+        ),
+      installed_git_sha: z
+        .string()
+        .optional()
+        .describe(
+          'Git commit SHA of the installed code (from "git rev-parse HEAD"). ' +
+            'When provided, verifies that the installed code matches the certified commit.',
+        ),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: true,
     },
   },
-  async ({ content, url }) => {
-    return handleVerifyArtifact({ content, url }, client);
+  async ({ content, url, installed_git_sha }) => {
+    return handleVerifyArtifact({ content, url, installed_git_sha }, client);
   },
 );
 

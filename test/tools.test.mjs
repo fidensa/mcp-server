@@ -773,4 +773,130 @@ describe('verify_artifact', () => {
     const text = result.content.map((c) => c.text).join('\n');
     assert.ok(!text.includes('must be on the fidensa.com'));
   });
+
+  // Helper: build a minimal JWS JSON Serialization for testing
+  function buildTestArtifact(payloadObj, certMeta = {}) {
+    const toB64Url = (str) =>
+      Buffer.from(str).toString('base64url');
+    const payload = toB64Url(JSON.stringify(payloadObj));
+    const platformHeader = {
+      alg: 'ES256',
+      kid: 'test-key-1',
+      typ: 'certification+jws',
+      certification: {
+        capability_id: 'test-cap',
+        capability_version: '1.0.0',
+        capability_type: 'mcp_server',
+        content_hash: 'abc',
+        certified_at: '2026-01-01T00:00:00Z',
+        expires_at: '2027-01-01T00:00:00Z',
+        stages_completed: ['ingest'],
+        ...certMeta,
+      },
+    };
+    return {
+      payload,
+      signatures: [
+        {
+          protected: toB64Url(JSON.stringify(platformHeader)),
+          signature: toB64Url('fake-sig-bytes-placeholder-pad00'),
+        },
+      ],
+    };
+  }
+
+  it('shows git_sha from certification header when present', async () => {
+    const artifact = buildTestArtifact(
+      { identity: { name: 'test-cap', git_sha: 'aabbccdd11223344' } },
+      { git_sha: 'aabbccdd11223344' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)) },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(text.includes('aabbccdd11223344'), 'Should display the certified git SHA');
+  });
+
+  it('reports code integrity MATCH when installed_git_sha matches', async () => {
+    const sha = 'aabbccdd11223344';
+    const artifact = buildTestArtifact(
+      { identity: { name: 'test-cap', git_sha: sha } },
+      { git_sha: sha },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), installed_git_sha: sha },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('Code integrity: MATCH'),
+      'Should report code integrity match',
+    );
+  });
+
+  it('reports code integrity MISMATCH when installed_git_sha differs', async () => {
+    const artifact = buildTestArtifact(
+      { identity: { name: 'test-cap', git_sha: 'certified111' } },
+      { git_sha: 'certified111' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), installed_git_sha: 'installed999' },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('Code integrity: MISMATCH'),
+      'Should report code integrity mismatch',
+    );
+  });
+
+  it('shows tip about installed_git_sha when SHA in cert but not provided', async () => {
+    const artifact = buildTestArtifact(
+      { identity: { name: 'test-cap', git_sha: 'aabbcc' } },
+      { git_sha: 'aabbcc' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)) },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(text.includes('installed_git_sha'), 'Should suggest passing installed_git_sha');
+  });
+
+  it('handles cert without git_sha when installed_git_sha is provided', async () => {
+    const artifact = buildTestArtifact(
+      { identity: { name: 'test-cap' } },
+      {},
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), installed_git_sha: 'abc123' },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('before git SHA recording'),
+      'Should explain cert predates git SHA recording',
+    );
+  });
 });
