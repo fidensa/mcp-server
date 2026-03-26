@@ -1,6 +1,6 @@
 {
   "name": "@fidensa/mcp-server",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Fidensa AI certification authority -- MCP server for trust-aware tool selection",
   "type": "module",
   "mcpName": "com.fidensa/mcp-server",
@@ -34,6 +34,15 @@
     "url": "git+https://github.com/fidensa/mcp-server.git"
   },
   "homepage": "https://fidensa.com",
+  "certification": {
+    "authority": "fidensa.com",
+    "capability_id": "fidensa-mcp-server",
+    "version": "0.3.1",
+    "status_url": "https://fidensa.com/v1/attestation/fidensa-mcp-server",
+    "record_url": "https://fidensa.com/certifications/fidensa-mcp-server",
+    "artifact_url": "https://fidensa.com/v1/artifacts/fidensa-mcp-server",
+    "badge_url": "https://fidensa.com/badges/fidensa-mcp-server.svg"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
     "zod": "^3.25.0",

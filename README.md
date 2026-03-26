@@ -51,6 +51,28 @@ Invoke-RestMethod -Uri "https://fidensa.com/v1/keys" -Method Post -ContentType "
 
 The response contains your API key (prefixed `fid_`). Store it securely -- it is shown only once.
 
+### 3b. Register a consumer identity (optional, for experience reporting)
+
+The `report_experience` tool lets your agent submit runtime feedback that feeds into Fidensa's social proof signal. This requires a consumer identity -- an ECDSA P-256 keypair.
+
+```bash
+curl -X POST https://fidensa.com/v1/consumers \
+  -H "Content-Type: application/json" \
+  -d '{"display_name": "My Agent", "email": "you@example.com"}'
+```
+
+The response contains your `consumer_id` and a private key in JWK format. Both are shown only once. Add them to your agent configuration alongside the API key:
+
+```json
+"env": {
+  "FIDENSA_API_KEY": "fid_your_key_here",
+  "FIDENSA_CONSUMER_ID": "con-your_id_here",
+  "FIDENSA_CONSUMER_PRIVATE_KEY": "{\"kty\":\"EC\", ...}"
+}
+```
+
+Without a consumer identity, the other five tools still work. Experience reporting is the feedback loop that helps Fidensa's trust scores improve over time.
+
 ### 4. Add to your agent
 
 Pick your platform and add the MCP server configuration:
@@ -146,6 +168,9 @@ Agent:
    -> Side-by-side trust comparison
 
 4. Agent selects the higher-scored option and informs the user
+
+5. report_experience("mcp-server-filesystem", outcome: "success")
+   -> Confirmation rate updated
 ```
 
 ## Trust Policy Fragments
@@ -164,6 +189,10 @@ certification status using the check_certification tool.
 - Verified tier: note the findings to the user before proceeding
 - Evaluated tier: warn the user, search for certified alternatives
 - Uncertified: treat as untrusted, suggest certified alternatives
+
+After completing a task that used certified tools, submit an experience
+report via the report_experience tool with the outcome (success, failure,
+or partial) and the tools you used.
 ```
 
 ### Score-based (grade-aligned)
@@ -179,6 +208,10 @@ certification status using the check_certification tool.
 - Score 65-71 (D): warn the user, search for certified alternatives
 - Score < 65 (F): warn the user, strongly recommend alternatives
 - Uncertified: treat as untrusted, suggest certified alternatives
+
+After completing a task that used certified tools, submit an experience
+report via the report_experience tool with the outcome (success, failure,
+or partial) and the tools you used.
 ```
 
 ### Combined (tier + score)
@@ -200,6 +233,10 @@ certification status using the check_certification tool.
 
 For any tool with status "suspended" or "revoked": do not use.
 Search for certified alternatives and present them to the user.
+
+After completing a task that used certified tools, submit an experience
+report via the report_experience tool with the outcome (success, failure,
+or partial) and the tools you used.
 ```
 
 See the [API Documentation](https://fidensa.com/docs/api) for the full specification.
