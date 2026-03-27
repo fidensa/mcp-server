@@ -1,38 +1,24 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.fidensa/mcp-server",
-  "description": "Fidensa AI certification authority. Check trust scores, search certified capabilities, compare side-by-side, verify signed artifacts, and report runtime experience for MCP servers, skills, rules files, hooks, sub-agents, and plugins.",
+  "description": "Fidensa AI certification authority. Check trust scores, search certified capabilities, compare side-by-side, verify signed artifacts, check file integrity, and report runtime experience for MCP servers, skills, rules files, hooks, sub-agents, and plugins.",
   "repository": {
     "url": "https://github.com/fidensa/mcp-server",
     "source": "github"
   },
-  "version": "0.3.3",
+  "version": "0.4.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@fidensa/mcp-server",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "FIDENSA_API_KEY",
-          "description": "API key for full access (get_contract, compare_capabilities, verify_artifact). Free registration at https://fidensa.com/v1/keys. Not required for check_certification and search_capabilities.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": true
-        },
-        {
-          "name": "FIDENSA_CONSUMER_ID",
-          "description": "Consumer identity ID for submitting experience reports via report_experience. Register at POST /v1/consumers.",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false
-        },
-        {
-          "name": "FIDENSA_CONSUMER_PRIVATE_KEY",
-          "description": "ECDSA P-256 private key in JWK format for signing experience reports.",
+          "description": "API key for full access (get_contract, compare_capabilities, verify_artifact). Free registration at https://fidensa.com/v1/keys. Not required for check_certification, search_capabilities, verify_file, or report_experience.",
           "isRequired": false,
           "format": "string",
           "isSecret": true
