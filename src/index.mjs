@@ -4,10 +4,10 @@
  * @fidensa/mcp-server — Fidensa AI certification authority MCP server.
  *
  * Provides consuming AI agents with structured access to Fidensa certification
- * data through the Model Context Protocol. Six tools for trust-aware tool selection.
+ * data through the Model Context Protocol. Seven tools for trust-aware tool selection.
  *
  * Configuration:
- *   FIDENSA_API_KEY   — API key for Registered+ tools (optional for check/search)
+ *   FIDENSA_API_KEY   — API key for Registered+ tools (optional for check/search/verify_file)
  *   FIDENSA_BASE_URL  — Override base URL (default: https://fidensa.com)
  *
  * Usage:
@@ -26,12 +26,13 @@ import { handleSearchCapabilities } from './tools/search-capabilities.mjs';
 import { handleCompareCapabilities } from './tools/compare-capabilities.mjs';
 import { handleReportExperience } from './tools/report-experience.mjs';
 import { handleVerifyArtifact } from './tools/verify-artifact.mjs';
+import { handleVerifyFile } from './tools/verify-file.mjs';
 
 // ── Server setup ─────────────────────────────────────────────────────
 
 const server = new McpServer({
   name: 'fidensa',
-  version: '0.3.3',
+  version: '0.4.0',
 });
 
 const client = new ApiClient();
@@ -160,18 +161,25 @@ server.registerTool(
   {
     title: 'Report Experience with a Capability',
     description:
-      'Submit a consumer experience report for a certified capability. ' +
-      'Reports feed into the social proof signal of the trust score. ' +
-      'Requires consumer identity (FIDENSA_CONSUMER_ID and FIDENSA_CONSUMER_PRIVATE_KEY).',
+      'Submit an experience report for a certified capability. Reports feed into the ' +
+      'social proof signal of the trust score. Requires the content_hash from the ' +
+      ".cert.json artifact (proves you've encountered the certified file). " +
+      'API key optional but recommended for higher rate limits.',
     inputSchema: {
       capability_id: z.string().describe('Capability identifier'),
-      version: z
+      content_hash: z
         .string()
-        .optional()
-        .describe('Capability version (e.g. "1.0.0"). Looked up automatically if omitted.'),
+        .describe(
+          'SHA-256 content hash from the .cert.json artifact or the certification block. ' +
+            'This proves you have the certified file.',
+        ),
       outcome: z
         .enum(['success', 'failure', 'partial'])
         .describe('Overall outcome of using the capability'),
+      version: z
+        .string()
+        .optional()
+        .describe('Capability version (e.g. "1.0.0"). Server defaults to latest if omitted.'),
       environment: z
         .object({
           agent_platform: z.string().describe('Agent platform (e.g. "claude-code", "cursor")'),
@@ -179,6 +187,7 @@ server.registerTool(
           os: z.string().optional().describe('Operating system'),
           runtime_version: z.string().optional().describe('Runtime version (e.g. "node-22.x")'),
         })
+        .optional()
         .describe('Environment context'),
       details: z
         .object({
@@ -190,9 +199,9 @@ server.registerTool(
         .describe('Additional details'),
     },
   },
-  async ({ capability_id, version, outcome, environment, details }) => {
+  async ({ capability_id, content_hash, outcome, version, environment, details }) => {
     return handleReportExperience(
-      { capability_id, version, outcome, environment, details },
+      { capability_id, content_hash, outcome, version, environment, details },
       client,
     );
   },
@@ -203,11 +212,11 @@ server.registerTool(
   {
     title: 'Verify Fidensa Certification Artifact',
     description:
-      'Verify the cryptographic signatures on a Fidensa certification artifact (.cert.json). ' +
-      'Checks platform signature, publisher attestation, content hash, expiry, and optionally ' +
-      'code integrity (git SHA match). For true offline verification, pass the .cert.json content ' +
-      "from the capability's published package via the content parameter. " +
-      'Requires a free API key (set FIDENSA_API_KEY).',
+      'Verify the cryptographic signature on a Fidensa certification artifact (.cert.json). ' +
+      'Checks platform signature, content hash, expiry, and optionally code integrity ' +
+      '(git SHA match) and file integrity (file hash match). For true offline verification, ' +
+      "pass the .cert.json content from the capability's published package via the content " +
+      'parameter. Requires a free API key (set FIDENSA_API_KEY).',
     inputSchema: {
       content: z
         .string()
@@ -229,14 +238,47 @@ server.registerTool(
           'Git commit SHA of the installed code (from "git rev-parse HEAD"). ' +
             'When provided, verifies that the installed code matches the certified commit.',
         ),
+      file_hash: z
+        .string()
+        .optional()
+        .describe(
+          'SHA-256 hash of the capability file (excluding the residual comment line). ' +
+            'When provided, verifies the file matches the certified original.',
+        ),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: true,
     },
   },
-  async ({ content, url, installed_git_sha }) => {
-    return handleVerifyArtifact({ content, url, installed_git_sha }, client);
+  async ({ content, url, installed_git_sha, file_hash }) => {
+    return handleVerifyArtifact({ content, url, installed_git_sha, file_hash }, client);
+  },
+);
+
+server.registerTool(
+  'verify_file',
+  {
+    title: 'Verify Certified File Integrity',
+    description:
+      'Quick file integrity check: pass the SHA-256 hash of a capability file and its ' +
+      'capability_id to verify the file matches what Fidensa certified. This is the ' +
+      'simplest verification path — no .cert.json needed. No API key required.',
+    inputSchema: {
+      capability_id: z.string().describe('Capability identifier'),
+      file_hash: z
+        .string()
+        .describe(
+          'SHA-256 hash of the capability file (excluding the residual comment line if present).',
+        ),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ capability_id, file_hash }) => {
+    return handleVerifyFile({ capability_id, file_hash }, client);
   },
 );
 
@@ -251,8 +293,8 @@ async function main() {
     console.error('[fidensa] API key configured — all tools available');
   } else {
     console.error(
-      '[fidensa] No FIDENSA_API_KEY set — check_certification and search_capabilities available. ' +
-        'Set FIDENSA_API_KEY for full access.',
+      '[fidensa] No FIDENSA_API_KEY set — check_certification, search_capabilities, verify_file, ' +
+        'and report_experience available. Set FIDENSA_API_KEY for full access.',
     );
   }
 }

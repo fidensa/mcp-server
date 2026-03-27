@@ -1,15 +1,16 @@
 /**
- * verify_artifact tool -- offline artifact verification.
+ * verify_artifact tool — offline artifact verification.
  *
  * Accepts either:
- *   - base64-encoded .cert.json content (preferred -- true offline verification)
+ *   - base64-encoded .cert.json content (preferred — true offline verification)
  *   - A fidensa.com URL to fetch the artifact from (convenience, with circularity warning)
  *
  * Verifies the JWS platform signature using the published public key.
  * URL input is restricted to fidensa.com domain to prevent SSRF.
  *
- * Optional: pass installed_git_sha to verify that installed code matches the
- * certified commit recorded in the artifact.
+ * Optional inputs:
+ *   - installed_git_sha: verify installed code matches the certified commit
+ *   - file_hash: verify a capability file matches the certified original content
  */
 
 import * as jose from 'jose';
@@ -18,9 +19,10 @@ const ALLOWED_URL_PATTERN = /^https:\/\/(www\.)?fidensa\.(com|dev)\//;
 
 /**
  * @param {object} input
- * @param {string} [input.content]  - Base64-encoded .cert.json content
- * @param {string} [input.url]      - fidensa.com URL to fetch the artifact
+ * @param {string} [input.content]           - Base64-encoded .cert.json content
+ * @param {string} [input.url]               - fidensa.com URL to fetch the artifact
  * @param {string} [input.installed_git_sha] - Git SHA of installed code for integrity check
+ * @param {string} [input.file_hash]         - SHA-256 hash of the capability file for content verification
  * @param {import('../lib/api-client.mjs').ApiClient} client
  */
 export async function handleVerifyArtifact(input, client) {
@@ -93,7 +95,7 @@ export async function handleVerifyArtifact(input, client) {
           text:
             'Provide either a base64-encoded artifact via "content" or a fidensa.com URL via "url". ' +
             'For true offline verification, use "content" with a .cert.json file embedded in the ' +
-            "capability's package.",
+            "capability's published package.",
         },
       ],
     };
@@ -170,7 +172,7 @@ export async function handleVerifyArtifact(input, client) {
     results.push('Warning: Payload is not valid JSON.');
   }
 
-  // Compute content hash
+  // Compute content hash of the payload
   const payloadBytes = new TextEncoder().encode(payloadText);
   const hashBuffer = await crypto.subtle.digest('SHA-256', payloadBytes);
   const computedHash = Array.from(new Uint8Array(hashBuffer))
@@ -180,19 +182,17 @@ export async function handleVerifyArtifact(input, client) {
   // Collect certification metadata from signature headers
   let certMeta = null;
 
-  // Verify each signature
+  // Verify each signature (single platform signature per CERT_DISTRIBUTION_SPEC)
   for (let i = 0; i < artifact.signatures.length; i++) {
     const sig = artifact.signatures[i];
     const header = sig.protected
       ? JSON.parse(new TextDecoder().decode(jose.base64url.decode(sig.protected)))
       : {};
 
-    const sigType = header.typ === 'attestation+jws' ? 'publisher' : 'platform';
     const kid = header.kid || 'unknown';
-    const delegated = header.attestation?.delegated || false;
 
-    // Extract certification metadata from the platform signature header
-    if (sigType === 'platform' && header.certification) {
+    // Extract certification metadata from the signature header
+    if (header.certification) {
       certMeta = header.certification;
     }
 
@@ -205,16 +205,12 @@ export async function handleVerifyArtifact(input, client) {
         // Construct compact JWS for verification
         const compactJws = `${sig.protected}.${artifact.payload}.${sig.signature}`;
         await jose.compactVerify(compactJws, key);
-        results.push(`Signature VALID: ${sigType} (kid: ${kid})`);
+        results.push(`Signature VALID (kid: ${kid})`);
       } catch (err) {
-        results.push(`Signature INVALID: ${sigType} (kid: ${kid}) -- ${err.message}`);
+        results.push(`Signature INVALID (kid: ${kid}) -- ${err.message}`);
       }
     } else {
-      if (delegated) {
-        results.push(`Signature: ${sigType} (kid: ${kid}) -- delegated (platform signed on publisher's behalf)`);
-      } else {
-        results.push(`Signature UNVERIFIABLE: ${sigType} (kid: ${kid}) -- key not found in platform key set`);
-      }
+      results.push(`Signature UNVERIFIABLE (kid: ${kid}) -- key not found in platform key set`);
     }
   }
 
@@ -231,19 +227,53 @@ export async function handleVerifyArtifact(input, client) {
       }
     }
 
-    // Content hash check
+    // Payload content hash check
     const declaredHash =
       certMeta?.content_hash || payloadData.certification?.content_hash || payloadData.content_hash;
     if (declaredHash) {
       const normalizedDeclared = declaredHash.replace(/^sha256:/, '');
       if (computedHash === normalizedDeclared) {
-        results.push(`Content hash: MATCHES (${computedHash.slice(0, 16)}...)`);
+        results.push(`Payload hash: MATCHES (${computedHash.slice(0, 16)}...)`);
       } else {
         results.push(
-          `Content hash: MISMATCH. Declared: ${normalizedDeclared.slice(0, 16)}... Computed: ${computedHash.slice(0, 16)}...`,
+          `Payload hash: MISMATCH. Declared: ${normalizedDeclared.slice(0, 16)}... Computed: ${computedHash.slice(0, 16)}...`,
         );
       }
     }
+  }
+
+  // File content verification: compare provided file_hash against original_content_hash
+  const originalContentHash =
+    certMeta?.original_content_hash ||
+    payloadData?.trust?.original_content_hash ||
+    null;
+
+  if (input.file_hash) {
+    results.push('');
+    const providedHash = input.file_hash.replace(/^sha256:/, '').trim().toLowerCase();
+
+    if (originalContentHash) {
+      const certifiedHash = originalContentHash.replace(/^sha256:/, '').trim().toLowerCase();
+      if (providedHash === certifiedHash) {
+        results.push('File integrity: MATCH -- file content matches the certified original');
+      } else {
+        results.push(
+          'File integrity: MISMATCH -- the file has been modified since certification. ' +
+            'The capability may have been updated; a new version requires recertification.',
+        );
+      }
+    } else {
+      results.push(
+        'File integrity: cannot verify -- this artifact does not contain an original_content_hash. ' +
+          'Re-run the pipeline to generate an updated artifact with content hash.',
+      );
+    }
+  } else if (originalContentHash) {
+    results.push('');
+    results.push(
+      'Tip: pass file_hash (SHA-256 of the capability file, excluding the residual comment line) ' +
+        'to verify the file matches what Fidensa certified.',
+    );
   }
 
   // Code integrity check: git SHA
@@ -256,7 +286,7 @@ export async function handleVerifyArtifact(input, client) {
       const installed = input.installed_git_sha.trim().toLowerCase();
       const certified = certifiedGitSha.trim().toLowerCase();
       if (installed === certified) {
-        results.push(`Code integrity: MATCH -- installed code matches certified commit`);
+        results.push('Code integrity: MATCH -- installed code matches certified commit');
       } else {
         results.push(
           `Code integrity: MISMATCH -- installed ${installed.slice(0, 12)}... does not match certified ${certified.slice(0, 12)}...`,
@@ -279,6 +309,9 @@ export async function handleVerifyArtifact(input, client) {
     results.push('');
     results.push(`Capability: ${certMeta.capability_id} v${certMeta.capability_version} (${certMeta.capability_type})`);
     results.push(`Certified: ${certMeta.certified_at}`);
+    if (certMeta.instructions_url) {
+      results.push(`Instructions: ${certMeta.instructions_url}`);
+    }
     results.push(`Pipeline stages: ${(certMeta.stages_completed || []).join(', ')}`);
   }
 

@@ -7,6 +7,7 @@ import { handleSearchCapabilities } from '../src/tools/search-capabilities.mjs';
 import { handleCompareCapabilities } from '../src/tools/compare-capabilities.mjs';
 import { handleReportExperience } from '../src/tools/report-experience.mjs';
 import { handleVerifyArtifact } from '../src/tools/verify-artifact.mjs';
+import { handleVerifyFile } from '../src/tools/verify-file.mjs';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -471,55 +472,10 @@ describe('compare_capabilities', () => {
 // ── report_experience ────────────────────────────────────────────────
 
 describe('report_experience', () => {
-  it('returns credential setup instructions when no consumer identity configured', async () => {
-    // Clear env vars to simulate missing identity
-    const savedId = process.env.FIDENSA_CONSUMER_ID;
-    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-    delete process.env.FIDENSA_CONSUMER_ID;
-    delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-
-    const client = fakeClient({});
-    const result = await handleReportExperience(
-      {
-        capability_id: 'mcp-server-filesystem',
-        outcome: 'success',
-        environment: { agent_platform: 'claude-code' },
-      },
-      client,
-    );
-    assertTextContent(result, 'Consumer Identity Required');
-    assertTextContent(result, 'mcp-server-filesystem');
-    assertTextContent(result, 'success');
-
-    // Restore
-    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
-    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
-  });
-
-  it('submits a signed report when consumer identity is configured', async () => {
-    // Generate a real ES256 keypair for testing via Web Crypto
-    const keyPair = await crypto.subtle.generateKey(
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      true,
-      ['sign', 'verify'],
-    );
-    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-
-    const savedId = process.env.FIDENSA_CONSUMER_ID;
-    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
-    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
-
+  it('submits a report with API key auth', async () => {
     let capturedBody;
     const client = {
-      apiKey: null,
-      async get(path) {
-        // Attestation lookup for version
-        if (path.startsWith('/v1/attestation/')) {
-          return { capability_id: 'mcp-server-filesystem', version: '1.0.0', status: 'valid' };
-        }
-        throw new Error('Unexpected GET: ' + path);
-      },
+      apiKey: 'fid_testapikey',
       async post(path, body) {
         capturedBody = body;
         return {
@@ -534,97 +490,147 @@ describe('report_experience', () => {
     const result = await handleReportExperience(
       {
         capability_id: 'mcp-server-filesystem',
+        content_hash: 'abc123def456',
         outcome: 'success',
         environment: { agent_platform: 'claude-code' },
       },
       client,
     );
 
-    // Should succeed
     assertTextContent(result, 'Report Accepted');
     assertTextContent(result, 'mcp-server-filesystem');
+    assertTextContent(result, 'success');
+    assertTextContent(result, '95%');
 
-    // Verify the posted body has required fields
+    // Verify the posted body has the required fields
     assert.equal(capturedBody.capability_id, 'mcp-server-filesystem');
-    assert.equal(capturedBody.capability_version, '1.0.0');
+    assert.equal(capturedBody.content_hash, 'abc123def456');
     assert.equal(capturedBody.outcome, 'success');
-    assert.equal(capturedBody.consumer_id, 'con-test1234');
-    assert.ok(capturedBody.timestamp, 'Should have a timestamp');
-    assert.ok(capturedBody.signature, 'Should have a JWS signature');
-    // JWS Compact has 3 dot-separated parts
-    assert.equal(capturedBody.signature.split('.').length, 3, 'Signature should be JWS Compact');
-
-    // Restore
-    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
-    else delete process.env.FIDENSA_CONSUMER_ID;
-    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
-    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    assert.deepEqual(capturedBody.environment, { agent_platform: 'claude-code' });
+    // No signature, no consumer_id, no timestamp — simplified
+    assert.equal(capturedBody.signature, undefined);
+    assert.equal(capturedBody.consumer_id, undefined);
   });
 
-  it('uses explicit version when provided instead of looking up', async () => {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      true,
-      ['sign', 'verify'],
-    );
-    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-
-    const savedId = process.env.FIDENSA_CONSUMER_ID;
-    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
-    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
-
-    let getWasCalled = false;
+  it('submits a report without API key (unauthenticated)', async () => {
     let capturedBody;
     const client = {
       apiKey: null,
-      async get() {
-        getWasCalled = true;
-        return { capability_id: 'test', version: '9.9.9', status: 'valid' };
+      async post(path, body) {
+        capturedBody = body;
+        return {
+          accepted: true,
+          report_id: 'rpt-xyz789',
+          capability_id: 'test-cap',
+          current_confirmation_rate: null,
+        };
       },
+    };
+
+    const result = await handleReportExperience(
+      {
+        capability_id: 'test-cap',
+        content_hash: 'sha256:deadbeef',
+        outcome: 'failure',
+      },
+      client,
+    );
+
+    assertTextContent(result, 'Report Accepted');
+    assertTextContent(result, 'test-cap');
+    assert.equal(capturedBody.capability_id, 'test-cap');
+    assert.equal(capturedBody.content_hash, 'sha256:deadbeef');
+    assert.equal(capturedBody.outcome, 'failure');
+  });
+
+  it('passes optional version through', async () => {
+    let capturedBody;
+    const client = {
+      apiKey: null,
       async post(_path, body) {
         capturedBody = body;
-        return { accepted: true, report_id: 'rpt-x', capability_id: 'test', current_confirmation_rate: null };
+        return {
+          accepted: true,
+          report_id: 'rpt-v',
+          capability_id: 'test',
+          current_confirmation_rate: null,
+        };
       },
     };
 
     await handleReportExperience(
       {
         capability_id: 'test',
+        content_hash: 'hash123',
+        outcome: 'partial',
         version: '2.0.0',
-        outcome: 'failure',
-        environment: { agent_platform: 'cursor' },
       },
       client,
     );
 
     assert.equal(capturedBody.capability_version, '2.0.0');
-    assert.equal(getWasCalled, false, 'Should not call attestation API when version is explicit');
+  });
 
-    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
-    else delete process.env.FIDENSA_CONSUMER_ID;
-    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
-    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+  it('passes details through when provided', async () => {
+    let capturedBody;
+    const client = {
+      apiKey: null,
+      async post(_path, body) {
+        capturedBody = body;
+        return {
+          accepted: true,
+          report_id: 'rpt-d',
+          capability_id: 'test',
+          current_confirmation_rate: null,
+        };
+      },
+    };
+
+    await handleReportExperience(
+      {
+        capability_id: 'test',
+        content_hash: 'hash123',
+        outcome: 'failure',
+        details: { failure_description: 'Tool returned error' },
+      },
+      client,
+    );
+
+    assert.deepEqual(capturedBody.details, { failure_description: 'Tool returned error' });
+  });
+
+  it('omits optional fields when not provided', async () => {
+    let capturedBody;
+    const client = {
+      apiKey: null,
+      async post(_path, body) {
+        capturedBody = body;
+        return {
+          accepted: true,
+          report_id: 'rpt-min',
+          capability_id: 'test',
+          current_confirmation_rate: null,
+        };
+      },
+    };
+
+    await handleReportExperience(
+      {
+        capability_id: 'test',
+        content_hash: 'hash123',
+        outcome: 'success',
+      },
+      client,
+    );
+
+    assert.equal(capturedBody.capability_version, undefined);
+    assert.equal(capturedBody.environment, undefined);
+    assert.equal(capturedBody.details, undefined);
   });
 
   it('handles API error from report submission gracefully', async () => {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      true,
-      ['sign', 'verify'],
-    );
-    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-
-    const savedId = process.env.FIDENSA_CONSUMER_ID;
-    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
-    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
-
     const client = {
       apiKey: null,
-      async get() {
-        return { capability_id: 'test', version: '1.0.0', status: 'valid' };
-      },
       async post() {
         const { FidensaApiError } = await import('../src/lib/api-client.mjs');
         throw new FidensaApiError(429, { error: 'Rate limit exceeded' });
@@ -634,61 +640,38 @@ describe('report_experience', () => {
     const result = await handleReportExperience(
       {
         capability_id: 'test',
+        content_hash: 'hash123',
         outcome: 'success',
-        environment: { agent_platform: 'claude-code' },
       },
       client,
     );
 
     assertIsError(result);
     assertTextContent(result, 'Rate limit exceeded');
-
-    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
-    else delete process.env.FIDENSA_CONSUMER_ID;
-    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
-    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
   });
 
-  it('handles version lookup failure gracefully', async () => {
-    const keyPair = await crypto.subtle.generateKey(
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      true,
-      ['sign', 'verify'],
-    );
-    const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-
-    const savedId = process.env.FIDENSA_CONSUMER_ID;
-    const savedKey = process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
-    process.env.FIDENSA_CONSUMER_ID = 'con-test1234';
-    process.env.FIDENSA_CONSUMER_PRIVATE_KEY = JSON.stringify(privateJwk);
-
+  it('handles content_hash validation error from server', async () => {
     const client = {
       apiKey: null,
-      async get() {
-        const { FidensaApiError } = await import('../src/lib/api-client.mjs');
-        throw new FidensaApiError(404, { error: 'not_found' });
-      },
       async post() {
-        throw new Error('Should not reach POST');
+        const { FidensaApiError } = await import('../src/lib/api-client.mjs');
+        throw new FidensaApiError(400, {
+          error: 'content_hash does not match the certified artifact.',
+        });
       },
     };
 
     const result = await handleReportExperience(
       {
-        capability_id: 'nonexistent',
+        capability_id: 'test',
+        content_hash: 'wrong-hash',
         outcome: 'success',
-        environment: { agent_platform: 'claude-code' },
       },
       client,
     );
 
     assertIsError(result);
-    assertTextContent(result, 'nonexistent');
-
-    if (savedId) process.env.FIDENSA_CONSUMER_ID = savedId;
-    else delete process.env.FIDENSA_CONSUMER_ID;
-    if (savedKey) process.env.FIDENSA_CONSUMER_PRIVATE_KEY = savedKey;
-    else delete process.env.FIDENSA_CONSUMER_PRIVATE_KEY;
+    assertTextContent(result, 'content_hash');
   });
 });
 
@@ -898,5 +881,238 @@ describe('verify_artifact', () => {
       text.includes('before git SHA recording'),
       'Should explain cert predates git SHA recording',
     );
+  });
+
+  it('reports file integrity MATCH when file_hash matches original_content_hash', async () => {
+    const fileHash = 'deadbeef12345678';
+    const artifact = buildTestArtifact(
+      { trust: { original_content_hash: `sha256:${fileHash}` } },
+      { original_content_hash: `sha256:${fileHash}` },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), file_hash: fileHash },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('File integrity: MATCH'),
+      'Should report file integrity match',
+    );
+  });
+
+  it('reports file integrity MISMATCH when file_hash differs from original_content_hash', async () => {
+    const artifact = buildTestArtifact(
+      {},
+      { original_content_hash: 'sha256:certified111' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), file_hash: 'modified999' },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('File integrity: MISMATCH'),
+      'Should report file integrity mismatch',
+    );
+  });
+
+  it('shows tip about file_hash when original_content_hash present but file_hash not provided', async () => {
+    const artifact = buildTestArtifact(
+      {},
+      { original_content_hash: 'sha256:abc123' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)) },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(text.includes('file_hash'), 'Should suggest passing file_hash');
+  });
+
+  it('handles missing original_content_hash when file_hash provided', async () => {
+    const artifact = buildTestArtifact({}, {});
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)), file_hash: 'abc123' },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('does not contain an original_content_hash'),
+      'Should explain cert lacks content hash',
+    );
+  });
+
+  it('shows instructions_url when present in cert metadata', async () => {
+    const artifact = buildTestArtifact(
+      {},
+      { instructions_url: 'https://fidensa.com/sop' },
+    );
+    const client = fakeClient({
+      _apiKey: 'fid_test',
+      '/.well-known/certification-keys.json': { keys: [] },
+    });
+    const result = await handleVerifyArtifact(
+      { content: btoa(JSON.stringify(artifact)) },
+      client,
+    );
+    const text = result.content.map((c) => c.text).join('\n');
+    assert.ok(
+      text.includes('https://fidensa.com/sop'),
+      'Should display the instructions URL',
+    );
+  });
+});
+
+// ── verify_file ──────────────────────────────────────────────────────
+
+describe('verify_file', () => {
+  it('returns MATCH when file_hash matches certified content_hash', async () => {
+    const hash = 'abc123def456';
+    const client = fakeClient({
+      '/v1/attestation/test-cap': {
+        capability_id: 'test-cap',
+        version: '1.0.0',
+        status: 'valid',
+        tier: 'Certified',
+        trust_score: 90,
+        grade: 'A',
+        content_hash: hash,
+      },
+    });
+
+    const result = await handleVerifyFile(
+      { capability_id: 'test-cap', file_hash: hash },
+      client,
+    );
+    assertTextContent(result, 'MATCH');
+    assertTextContent(result, 'test-cap');
+    assertTextContent(result, '90/A');
+    assertTextContent(result, 'Certified');
+  });
+
+  it('returns MATCH when file_hash has sha256: prefix', async () => {
+    const hash = 'abc123def456';
+    const client = fakeClient({
+      '/v1/attestation/test-cap': {
+        capability_id: 'test-cap',
+        version: '1.0.0',
+        status: 'valid',
+        tier: 'Certified',
+        trust_score: 90,
+        grade: 'A',
+        content_hash: `sha256:${hash}`,
+      },
+    });
+
+    const result = await handleVerifyFile(
+      { capability_id: 'test-cap', file_hash: `sha256:${hash}` },
+      client,
+    );
+    assertTextContent(result, 'MATCH');
+  });
+
+  it('returns MISMATCH when hashes differ', async () => {
+    const client = fakeClient({
+      '/v1/attestation/test-cap': {
+        capability_id: 'test-cap',
+        version: '1.0.0',
+        status: 'valid',
+        tier: 'Certified',
+        trust_score: 90,
+        grade: 'A',
+        content_hash: 'certified-hash',
+      },
+    });
+
+    const result = await handleVerifyFile(
+      { capability_id: 'test-cap', file_hash: 'different-hash' },
+      client,
+    );
+    assertTextContent(result, 'MISMATCH');
+    assertTextContent(result, 'modified since certification');
+  });
+
+  it('handles uncertified capability', async () => {
+    const client = fakeClient({});
+
+    const result = await handleVerifyFile(
+      { capability_id: 'unknown-cap', file_hash: 'abc123' },
+      client,
+    );
+    assertTextContent(result, 'not Fidensa certified');
+    assertTextContent(result, 'unknown-cap');
+  });
+
+  it('handles missing content_hash in attestation', async () => {
+    const client = fakeClient({
+      '/v1/attestation/old-cap': {
+        capability_id: 'old-cap',
+        version: '0.1.0',
+        status: 'valid',
+        tier: 'Verified',
+        trust_score: 70,
+        grade: 'D',
+        content_hash: null,
+      },
+    });
+
+    const result = await handleVerifyFile(
+      { capability_id: 'old-cap', file_hash: 'abc123' },
+      client,
+    );
+    assertTextContent(result, 'does not have a content hash');
+    assertTextContent(result, 'verify_artifact');
+  });
+
+  it('handles API error gracefully', async () => {
+    const client = {
+      apiKey: null,
+      async get() {
+        throw new Error('Network error');
+      },
+    };
+
+    const result = await handleVerifyFile(
+      { capability_id: 'test', file_hash: 'abc123' },
+      client,
+    );
+    assertIsError(result);
+    assertTextContent(result, 'Network error');
+  });
+
+  it('is case-insensitive for hash comparison', async () => {
+    const client = fakeClient({
+      '/v1/attestation/test-cap': {
+        capability_id: 'test-cap',
+        version: '1.0.0',
+        status: 'valid',
+        tier: 'Certified',
+        trust_score: 90,
+        grade: 'A',
+        content_hash: 'AABBCCDD',
+      },
+    });
+
+    const result = await handleVerifyFile(
+      { capability_id: 'test-cap', file_hash: 'aabbccdd' },
+      client,
+    );
+    assertTextContent(result, 'MATCH');
   });
 });
