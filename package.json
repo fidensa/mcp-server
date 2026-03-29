@@ -37,7 +37,7 @@
   "certification": {
     "authority": "fidensa.com",
     "capability_id": "fidensa-mcp-server",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "status_url": "https://fidensa.com/v1/attestation/fidensa-mcp-server",
     "record_url": "https://fidensa.com/certifications/fidensa-mcp-server",
     "artifact_url": "https://fidensa.com/v1/artifacts/fidensa-mcp-server",
