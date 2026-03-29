@@ -1,17 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.fidensa/mcp-server",
+  "title": "Fidensa",
   "description": "Fidensa AI certification authority. Check trust scores, search certified capabilities, compare side-by-side, verify signed artifacts, check file integrity, and report runtime experience for MCP servers, skills, rules files, hooks, sub-agents, and plugins.",
+  "websiteUrl": "https://fidensa.com",
   "repository": {
     "url": "https://github.com/fidensa/mcp-server",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.4.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@fidensa/mcp-server",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "transport": {
         "type": "stdio"
       },
