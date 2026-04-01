@@ -21,6 +21,7 @@ export default [
         TextDecoder: 'readonly',
         AbortController: 'readonly',
         AbortSignal: 'readonly',
+        Buffer: 'readonly',
       },
     },
     rules: {
