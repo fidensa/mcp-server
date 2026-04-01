@@ -1,16 +1,24 @@
 import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { ApiClient } from '../src/lib/api-client.mjs';
 
 // We'll test the ApiClient class.
 // Mock global fetch for all tests.
 let originalFetch;
+let originalBaseUrl, originalApiKey;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
+  originalBaseUrl = process.env.FIDENSA_BASE_URL;
+  originalApiKey = process.env.FIDENSA_API_KEY;
+  delete process.env.FIDENSA_BASE_URL;
+  delete process.env.FIDENSA_API_KEY;
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  if (originalBaseUrl !== undefined) process.env.FIDENSA_BASE_URL = originalBaseUrl;
+  if (originalApiKey !== undefined) process.env.FIDENSA_API_KEY = originalApiKey;
 });
 
 function mockFetch(status, body, headers = {}) {
@@ -20,15 +28,14 @@ function mockFetch(status, body, headers = {}) {
     headers: new Map(Object.entries(headers)),
     json: async () => body,
     text: async () => JSON.stringify(body),
+    url: 'https://fidensa.com/redirect',
+    redirected: false,
   }));
   return globalThis.fetch;
 }
 
-// Dynamic import so env vars can be set before module loads
-async function loadClient(opts = {}) {
-  // Clear module cache by using a query param trick
-  const mod = await import(`../src/lib/api-client.mjs?t=${Date.now()}-${Math.random()}`);
-  return new mod.ApiClient(opts);
+function loadClient(opts = {}) {
+  return new ApiClient(opts);
 }
 
 describe('ApiClient', () => {
@@ -142,6 +149,31 @@ describe('ApiClient', () => {
       });
     });
 
+    it('throws FidensaApiError on 500 server error', async () => {
+      mockFetch(500, { error: 'Internal Server Error' });
+      const client = await loadClient();
+      await assert.rejects(() => client.get('/v1/attestation/test'), (err) => {
+        assert.equal(err.status, 500);
+        return true;
+      });
+    });
+
+    it('handles non-JSON response body gracefully on error', async () => {
+      globalThis.fetch = mock.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        json: async () => { throw new Error('invalid json'); },
+      }));
+      const client = await loadClient();
+      await assert.rejects(() => client.get('/v1/attestation/test'), (err) => {
+        assert.equal(err.status, 502);
+        assert.equal(err.body.error, 'HTTP 502');
+        assert.equal(err.message, 'HTTP 502');
+        return true;
+      });
+    });
+
     it('throws on network error', async () => {
       globalThis.fetch = mock.fn(async () => {
         throw new Error('fetch failed');
@@ -149,6 +181,61 @@ describe('ApiClient', () => {
       const client = await loadClient();
       await assert.rejects(() => client.get('/v1/attestation/test'), (err) => {
         assert.ok(err.message.includes('fetch failed'));
+        return true;
+      });
+    });
+  });
+
+  describe('post()', () => {
+    it('makes a POST request to the correct URL with JSON body', async () => {
+      const f = mockFetch(200, { success: true });
+      const client = await loadClient();
+      await client.post('/v1/reports', { message: 'hello' });
+      assert.equal(f.mock.calls.length, 1);
+      const [url, opts] = f.mock.calls[0].arguments;
+      assert.equal(url, 'https://fidensa.com/v1/reports');
+      assert.equal(opts.method, 'POST');
+      assert.equal(opts.headers['Content-Type'], 'application/json');
+      assert.equal(opts.body, JSON.stringify({ message: 'hello' }));
+    });
+
+    it('includes Authorization header when apiKey is set', async () => {
+      const f = mockFetch(200, { success: true });
+      const client = await loadClient({ apiKey: 'fid_test' });
+      await client.post('/v1/reports', {});
+      const [, opts] = f.mock.calls[0].arguments;
+      assert.equal(opts.headers['Authorization'], 'Bearer fid_test');
+    });
+
+    it('throws FidensaApiError on 400 Bad Request', async () => {
+      mockFetch(400, { error: 'invalid_request' });
+      const client = await loadClient();
+      await assert.rejects(() => client.post('/v1/reports', {}), (err) => {
+        assert.equal(err.status, 400);
+        return true;
+      });
+    });
+
+    it('throws FidensaApiError on 500 server error', async () => {
+      mockFetch(500, { error: 'Internal Server Error' });
+      const client = await loadClient();
+      await assert.rejects(() => client.post('/v1/reports', {}), (err) => {
+        assert.equal(err.status, 500);
+        return true;
+      });
+    });
+
+    it('handles non-JSON response body gracefully on error', async () => {
+      globalThis.fetch = mock.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        json: async () => { throw new Error('invalid json'); },
+      }));
+      const client = await loadClient();
+      await assert.rejects(() => client.post('/v1/reports', {}), (err) => {
+        assert.equal(err.status, 502);
+        assert.equal(err.body.error, 'HTTP 502');
         return true;
       });
     });
